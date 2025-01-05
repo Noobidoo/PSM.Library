@@ -1,173 +1,175 @@
 #include "PSM.h"
 
-PSM* _thePSM;
+static void onZCInterrupt(psm_t *psm);
+static void calculateSkipFromZC(psm_t *psm);
+static void updateControl(psm_t* psm, bool forceDisable);
+static void onPSMTimerInterrupt(psm_t *psm);
+static void calculateSkip(psm_t *psm);
 
-PSM::PSM(unsigned char sensePin, unsigned char controlPin, unsigned int range, int mode, unsigned char divider, unsigned char interruptMinTimeDiff) {
-  _thePSM = this;
+psm_init(psm_t *psm) {
+  esp_rom_gpio_pad_select_gpio(psm->sense_pin);
+  gpio_set_direction(psm->sense_pin, GPIO_MODE_INPUT);
 
-  pinMode(sensePin, INPUT_PULLUP);
-  PSM::_sensePin = sensePin;
+  esp_rom_gpio_pad_select_gpio(psm->control_pin);
+  gpio_set_direction(psm->control_pin, GPIO_MODE_OUTPUT);
 
-  pinMode(controlPin, OUTPUT);
-  PSM::_controlPin = controlPin;
+  psm->divider = psm->divider > 0 ? psm->divider : 1;
 
-  PSM::_divider = divider > 0 ? divider : 1;
-
-  uint32_t interruptNum = digitalPinToInterrupt(PSM::_sensePin);
-
-  if (interruptNum != NOT_AN_INTERRUPT) {
-    attachInterrupt(interruptNum, onZCInterrupt, mode);
-  }
-
-  PSM::_range = range;
-  PSM::_interruptMinTimeDiff = interruptMinTimeDiff;
+  gpio_install_isr_service(0);
+  gpio_isr_handler_add(psm->sense_pin, (gpio_isr_t)onZCInterrupt, NULL);
+  gpio_set_intr_type(psm->sense_pin, (gpio_int_type_t)psm->mode);
 }
-
-void onPSMInterrupt() __attribute__((weak));
 void onPSMInterrupt() {}
 
-void PSM::onZCInterrupt(void) {
-  if (_thePSM->_interruptMinTimeDiff > 0 && millis() - _thePSM->_interruptMinTimeDiff < _thePSM->_lastMillis) {
-    if (millis() >= _thePSM->_lastMillis) {
+static void onZCInterrupt(psm_t *psm) {
+    uint64_t current_time = esp_timer_get_time() / 1000; // Convert to milliseconds
+
+  if (psm->interrupt_min_time_diff > 0 && current_time - psm->interrupt_min_time_diff < psm->last_millis) {
+    if (current_time >= psm->last_millis) {
       return;
     }
   }
 
-  _thePSM->_lastMillis = millis();
+  psm->last_millis = esp_timer_get_time() / 1000;
 
   onPSMInterrupt();
 
-  _thePSM->calculateSkipFromZC();
+  calculateSkipFromZC(psm);
 
-  if (_thePSM->_psmIntervalTimerInitialized) {
-    _thePSM->_psmIntervalTimer->setCount(0);
-    _thePSM->_psmIntervalTimer->resume();
+  if (psm->psm_interval_timer_initialized) {
+    esp_timer_stop(psm->psm_interval_timer);
+    esp_timer_start_once(psm->psm_interval_timer, psm->timer_interval_us);
   }
 }
 
-void PSM::onPSMTimerInterrupt(void) {
-  _thePSM->_psmIntervalTimer->pause();
-  _thePSM->updateControl(true);
+static void onPSMTimerInterrupt(psm_t *psm) {
+  esp_timer_stop(psm->psm_interval_timer);
+  updateControl(psm, true);
 }
 
-void PSM::set(unsigned int value) {
-  if (value < PSM::_range) {
-    PSM::_value = value;
+void psm_set(psm_t *psm, unsigned int value) {
+  if (value < psm->range) {
+    psm->value = value;
   }
   else {
-    PSM::_value = PSM::_range;
+    psm->value = psm->range;
   }
 }
 
-long PSM::getCounter(void) {
-  return PSM::_counter;
+long psm_get_counter(psm_t *psm) {
+  return psm->counter;
 }
 
-void PSM::resetCounter(void) {
-  PSM::_counter = 0;
+void psm_reset_counter(psm_t *psm) {
+  psm->counter = 0;
 }
 
-void PSM::stopAfter(long counter) {
-  PSM::_stopAfter = counter;
+void psm_stop_after(psm_t *psm, long counter) {
+  psm->stop_after = counter;
 }
 
-void PSM::calculateSkipFromZC(void) {
-  if (_thePSM->_dividerCounter >= _thePSM->_divider - 1) {
-    _thePSM->_dividerCounter -= _thePSM->_divider - 1;
-    _thePSM->calculateSkip();
+static void calculateSkipFromZC(psm_t *psm) {
+  if (psm->divider_counter >= psm->divider - 1) {
+    psm->divider_counter -= psm->divider - 1;
+    calculateSkip(psm);
   }
   else {
-    _thePSM->_dividerCounter++;
+    psm->divider_counter++;
   }
-  _thePSM->updateControl(false);
+  updateControl(psm, false);
 }
 
-void PSM::calculateSkip(void) {
-  PSM::_a += PSM::_value;
+static void calculateSkip(psm_t *psm) {
+  psm->a += psm->value;
 
-  if (PSM::_a >= PSM::_range) {
-    PSM::_a -= PSM::_range;
-    PSM::_skip = false;
+  if (psm->a >= psm->range) {
+    psm->a -= psm->range;
+    psm->skip = false;
   }
   else {
-    PSM::_skip = true;
+    psm->skip = true;
   }
 
-  if (PSM::_a > PSM::_range) {
-    PSM::_a = 0;
-    PSM::_skip = false;
+  if (psm->a > psm->range) {
+    psm->a = 0;
+    psm->skip = false;
   }
 
-  if (!PSM::_skip) {
-    PSM::_counter++;
+  if (!psm->skip) {
+    psm->counter++;
   }
 
-  if (!PSM::_skip
-    && PSM::_stopAfter > 0
-    && PSM::_counter > PSM::_stopAfter) {
-    PSM::_skip = true;
+  if (!psm->skip
+    && psm->stop_after > 0
+    && psm->counter > psm->stop_after) {
+    psm->skip = true;
   }
 }
 
-void PSM::updateControl(bool forceDisable) {
-  if (forceDisable || PSM::_skip) {
-    digitalWrite(PSM::_controlPin, LOW);
+static void updateControl(psm_t* psm, bool forceDisable) {
+  if (forceDisable || psm->skip) {
+    gpio_set_level(psm->control_pin, 0);
   }
   else {
-    digitalWrite(PSM::_controlPin, HIGH);
+    gpio_set_level(psm->control_pin, 1);
   }
 }
 
-unsigned int PSM::cps(void) {
-  unsigned int range = PSM::_range;
-  unsigned int value = PSM::_value;
-  unsigned char divider = PSM::_divider;
+unsigned int psm_get_cps(psm_t *psm) {
+  unsigned int range = psm->range;
+  unsigned int value = psm->value;
+  unsigned char divider = psm->divider;
 
-  PSM::_range = 0xFFFF;
-  PSM::_value = 1;
-  PSM::_a = 0;
-  PSM::_divider = 1;
-  PSM::_skip = true;
+  psm->range = 0xFFFF;
+  psm->value = 1;
+  psm->a = 0;
+  psm->divider = 1;
+  psm->skip = true;
 
-  unsigned long stopAt = millis() + 1000;
+  unsigned long stopAt = (esp_timer_get_time() / 1000) + 1000;
 
-  while (millis() < stopAt) {
-    delay(0);
+  while (esp_timer_get_time() / 1000 < stopAt) {
+    vTaskDelay(pdMS_TO_TICKS(1));
   }
 
-  unsigned int result = PSM::_a;
+  unsigned int result = psm->a;
 
-  PSM::_range = range;
-  PSM::_value = value;
-  PSM::_a = 0;
-  PSM::_divider = divider;
+  psm->range = range;
+  psm->value = value;
+  psm->a = 0;
+  psm->divider = divider;
 
   return result;
 }
 
-unsigned long PSM::getLastMillis(void) {
-  return PSM::_lastMillis;
+unsigned long psm_get_last_millis(psm_t *psm) {
+  return psm->last_millis;
 }
 
-unsigned char PSM::getDivider(void) {
-  return PSM::_divider;
+unsigned char psm_get_divider(psm_t *psm) {
+  return psm->divider;
 }
 
-void PSM::setDivider(unsigned char divider) {
-  PSM::_divider = divider > 0 ? divider : 1;
+void psm_set_divider(psm_t *psm, unsigned char divider) {
+  psm->divider = divider > 0 ? divider : 1;
 }
 
-void PSM::shiftDividerCounter(char value) {
-  PSM::_dividerCounter += value;
+void psm_set_shift_divider_counter(psm_t *psm,char value) {
+  psm->divider_counter += value;
 }
 
-void PSM::initTimer(uint16_t delay, TIM_TypeDef* timerInstance) {
+void psm_init_timer(psm_t *psm, uint16_t delay) {
   uint32_t us = delay > 1000u ? delay : delay > 55u ? 5500u : 6600u;
+  psm->timer_interval_us = us;
 
-  PSM::_psmIntervalTimer = new HardwareTimer(timerInstance);
-  PSM::_psmIntervalTimer->setOverflow(us, MICROSEC_FORMAT);
-  PSM::_psmIntervalTimer->setInterruptPriority(0, 0);
-  PSM::_psmIntervalTimer->attachInterrupt(onPSMTimerInterrupt);
+  esp_timer_create_args_t timer_args = {
+    .callback = (esp_timer_cb_t)onPSMTimerInterrupt,
+    .arg = psm,
+    .name = "psm_timer"
+  };
 
-  PSM::_psmIntervalTimerInitialized = true;
+  ESP_ERROR_CHECK(esp_timer_create(&timer_args, psm->psm_interval_timer));
+  ESP_ERROR_CHECK(esp_timer_start_once(psm->psm_interval_timer, us));
+
+  psm->psm_interval_timer_initialized = true;
 }

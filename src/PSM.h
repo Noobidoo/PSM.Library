@@ -11,6 +11,7 @@ typedef struct {
     gpio_num_t sense_pin;
     gpio_num_t control_pin;
     unsigned int range;
+    unsigned int value;
     gpio_int_type_t mode;
     unsigned char divider;
     unsigned char divider_counter;
@@ -34,6 +35,7 @@ void psm_reset_counter(psm_t *psm);
 void psm_stop_after(psm_t *psm, long counter);
 unsigned int psm_get_cps(psm_t *psm);
 void psm_set_divider(psm_t *psm, unsigned char divider);
-void psm_init_timer(psm_t *psm, unsigned int timer_interval_us, esp_timer_cb_t timer_callback);
+void psm_init_timer(psm_t *psm, uint16_t delay);
+void psm_set_shift_divider_counter(psm_t *psm,char value);
 
 #endif
