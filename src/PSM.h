@@ -1,53 +1,39 @@
-#ifndef PSM_h
-#define PSM_h
+#ifndef PSM_H
+#define PSM_H
 
-#include "Arduino.h"
+#include "driver/gpio.h"
+#include "esp_err.h"
+#include "esp_attr.h"
+#include "esp_timer.h"
 
-class PSM
-{
-public:
-  PSM(unsigned char sensePin, unsigned char controlPin, unsigned int range, int mode = RISING, unsigned char divider = 1, unsigned char interruptMinTimeDiff = 0);
 
-  void initTimer(uint16_t delay, TIM_TypeDef* timerInstance = TIM1);
+typedef struct {
+    gpio_num_t sense_pin;
+    gpio_num_t control_pin;
+    unsigned int range;
+    gpio_int_type_t mode;
+    unsigned char divider;
+    unsigned char divider_counter;
+    unsigned char interrupt_min_time_diff;
+    volatile int timer_interval_us;
+    volatile unsigned int a;
+    volatile bool skip;
+    volatile long counter;
+    volatile long stop_after;
+    volatile uint64_t last_millis;
+    volatile esp_timer_handle_t* psm_interval_timer;
+    volatile bool psm_interval_timer_initialized;
+    volatile bool psm_interval_timer_initialized;
+} psm_t;
 
-  void set(unsigned int value);
-
-  long getCounter(void);
-  void resetCounter(void);
-
-  void stopAfter(long counter);
-
-  unsigned int cps(void);
-  unsigned long getLastMillis(void);
-
-  unsigned char getDivider(void);
-  void setDivider(unsigned char divider = 1);
-  void shiftDividerCounter(char value = 1);
-
-private:
-  static inline void onZCInterrupt(void);
-  static inline void calculateSkipFromZC(void);
-  static inline void onPSMTimerInterrupt(void);
-  void calculateSkip(void);
-  void updateControl(bool forceDisable = true);
-
-  unsigned char _sensePin;
-  unsigned char _controlPin;
-  unsigned int _range;
-  unsigned char _divider = 1;
-  unsigned char _dividerCounter = 1;
-  unsigned char _interruptMinTimeDiff;
-  volatile unsigned int _value;
-  volatile unsigned int _a;
-  volatile bool _skip = true;
-  volatile long _counter;
-  volatile long _stopAfter;
-  volatile unsigned long _lastMillis = 0;
-
-  bool _psmIntervalTimerInitialized = false;
-  HardwareTimer* _psmIntervalTimer;
-};
-
-extern PSM* _thePSM;
+// Function declarations
+esp_err_t psm_init(psm_t *psm);
+void psm_set(psm_t *psm, unsigned int value);
+long psm_get_counter(psm_t *psm);
+void psm_reset_counter(psm_t *psm);
+void psm_stop_after(psm_t *psm, long counter);
+unsigned int psm_get_cps(psm_t *psm);
+void psm_set_divider(psm_t *psm, unsigned char divider);
+void psm_init_timer(psm_t *psm, unsigned int timer_interval_us, esp_timer_cb_t timer_callback);
 
 #endif
