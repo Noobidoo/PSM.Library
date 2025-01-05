@@ -1,40 +1,63 @@
 #include "PSM.h"
 
-static void onZCInterrupt(psm_t *psm);
-static void calculateSkipFromZC(psm_t *psm);
-static void updateControl(psm_t* psm, bool forceDisable);
-static void onPSMTimerInterrupt(psm_t *psm);
-static void calculateSkip(psm_t *psm);
+// Function declarations
+static void IRAM_ATTR zc_interrupt_handler(psm_t *psm);
+static void psm_calculate_skip_from_zc(psm_t *psm);
+static void psm_update_control(psm_t* psm, bool force_disable);
+static void IRAM_ATTR psm_timer_interrupt_handler(psm_t *psm);
+static void calculate_skip(psm_t *psm);
 
-psm_init(psm_t *psm) {
-  esp_rom_gpio_pad_select_gpio(psm->sense_pin);
-  gpio_set_direction(psm->sense_pin, GPIO_MODE_INPUT);
+esp_err_t psm_init(psm_t *psm) {
+    ESP_RETURN_ON_FALSE(psm != NULL, ESP_ERR_INVALID_ARG, "PSM", "Invalid PSM handle");
+    
+    esp_rom_gpio_pad_select_gpio(psm->sense_pin);
+    ESP_RETURN_ON_ERROR(gpio_set_direction(psm->sense_pin, GPIO_MODE_INPUT), "PSM",
+                       "Failed to set sense pin direction");
 
-  esp_rom_gpio_pad_select_gpio(psm->control_pin);
-  gpio_set_direction(psm->control_pin, GPIO_MODE_OUTPUT);
+    esp_rom_gpio_pad_select_gpio(psm->control_pin);
+    ESP_RETURN_ON_ERROR(gpio_set_direction(psm->control_pin, GPIO_MODE_OUTPUT), "PSM",
+                       "Failed to set control pin direction");
 
-  psm->divider = psm->divider > 0 ? psm->divider : 1;
+    psm->divider = psm->divider > 0 ? psm->divider : 1;
 
-  gpio_install_isr_service(0);
-  gpio_isr_handler_add(psm->sense_pin, (gpio_isr_t)onZCInterrupt, NULL);
-  gpio_set_intr_type(psm->sense_pin, (gpio_int_type_t)psm->mode);
+    ESP_RETURN_ON_ERROR(gpio_install_isr_service(0), "PSM",
+                       "Failed to install ISR service");
+    ESP_RETURN_ON_ERROR(gpio_isr_handler_add(psm->sense_pin, zc_interrupt_handler, (void*)psm), "PSM",
+                       "Failed to add ISR handler");
+    ESP_RETURN_ON_ERROR(gpio_set_intr_type(psm->sense_pin, psm->mode), "PSM",
+                       "Failed to set interrupt type");
+
+    return ESP_OK;
 }
+
+esp_err_t psm_deinit(psm_t *psm) {
+    ESP_RETURN_ON_FALSE(psm != NULL, ESP_ERR_INVALID_ARG, "PSM", "Invalid handle");
+    
+    if (psm->psm_interval_timer) {
+        ESP_RETURN_ON_ERROR(esp_timer_stop(psm->psm_interval_timer), "PSM", "Timer stop failed");
+        ESP_RETURN_ON_ERROR(esp_timer_delete(psm->psm_interval_timer), "PSM", "Timer delete failed");
+    }
+    
+    gpio_isr_handler_remove(psm->sense_pin);
+    gpio_reset_pin(psm->sense_pin);
+    gpio_reset_pin(psm->control_pin);
+    
+    return ESP_OK;
+}
+
 void onPSMInterrupt() {}
 
-static void onZCInterrupt(psm_t *psm) {
+static void IRAM_ATTR zc_interrupt_handler(psm_t *psm) {
     uint64_t current_time = esp_timer_get_time() / 1000; // Convert to milliseconds
 
-  if (psm->interrupt_min_time_diff > 0 && current_time - psm->interrupt_min_time_diff < psm->last_millis) {
-    if (current_time >= psm->last_millis) {
-      return;
+    if (psm->interrupt_min_time_diff > 0) {
+        uint64_t time_diff = current_time - psm->interrupt_min_time_diff;
+        if (time_diff < psm->last_millis) {
+            return;
+        }
     }
-  }
 
-  psm->last_millis = esp_timer_get_time() / 1000;
-
-  onPSMInterrupt();
-
-  calculateSkipFromZC(psm);
+  psm_calculate_skip_from_zc(psm);
 
   if (psm->psm_interval_timer_initialized) {
     esp_timer_stop(psm->psm_interval_timer);
@@ -42,9 +65,9 @@ static void onZCInterrupt(psm_t *psm) {
   }
 }
 
-static void onPSMTimerInterrupt(psm_t *psm) {
-  esp_timer_stop(psm->psm_interval_timer);
-  updateControl(psm, true);
+static void IRAM_ATTR psm_timer_interrupt_handler(psm_t *psm) {
+  esp_timtop(psm->psm_interval_timer);
+  psm_update_control(psm, true);
 }
 
 void psm_set(psm_t *psm, unsigned int value) {
@@ -52,8 +75,7 @@ void psm_set(psm_t *psm, unsigned int value) {
     psm->value = value;
   }
   else {
-    psm->value = psm->range;
-  }
+    psm->value = psm->rangevoid}
 }
 
 long psm_get_counter(psm_t *psm) {
@@ -68,18 +90,18 @@ void psm_stop_after(psm_t *psm, long counter) {
   psm->stop_after = counter;
 }
 
-static void calculateSkipFromZC(psm_t *psm) {
+static void psm_calculate_skip_from_zc(psm_t *psm) {
   if (psm->divider_counter >= psm->divider - 1) {
     psm->divider_counter -= psm->divider - 1;
-    calculateSkip(psm);
+    calculate_skip(psm);
   }
   else {
     psm->divider_counter++;
   }
-  updateControl(psm, false);
+  psm_update_control(psm, false);
 }
 
-static void calculateSkip(psm_t *psm) {
+static void calculate_skip(psm_t *psm) {
   psm->a += psm->value;
 
   if (psm->a >= psm->range) {
@@ -106,8 +128,8 @@ static void calculateSkip(psm_t *psm) {
   }
 }
 
-static void updateControl(psm_t* psm, bool forceDisable) {
-  if (forceDisable || psm->skip) {
+static void psm_update_control(psm_t* psm, bool force_disable) {
+  if (force_disable || psm->skip) {
     gpio_set_level(psm->control_pin, 0);
   }
   else {
@@ -163,7 +185,7 @@ void psm_init_timer(psm_t *psm, uint16_t delay) {
   psm->timer_interval_us = us;
 
   esp_timer_create_args_t timer_args = {
-    .callback = (esp_timer_cb_t)onPSMTimerInterrupt,
+    .callback = (esp_timer_cb_t)psm_timer_interrupt_handler,
     .arg = psm,
     .name = "psm_timer"
   };
