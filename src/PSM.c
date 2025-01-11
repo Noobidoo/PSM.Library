@@ -66,7 +66,7 @@ static void IRAM_ATTR zc_interrupt_handler(psm_t *psm) {
 }
 
 static void IRAM_ATTR psm_timer_interrupt_handler(psm_t *psm) {
-  esp_timtop(psm->psm_interval_timer);
+  esp_timer_stop(psm->psm_interval_timer);
   psm_update_control(psm, true);
 }
 
@@ -75,7 +75,8 @@ void psm_set(psm_t *psm, unsigned int value) {
     psm->value = value;
   }
   else {
-    psm->value = psm->rangevoid}
+    psm->value = psm->range;
+  }
 }
 
 long psm_get_counter(psm_t *psm) {

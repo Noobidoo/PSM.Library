@@ -25,10 +25,12 @@ typedef struct {
     volatile esp_timer_handle_t* psm_interval_timer;
     volatile bool psm_interval_timer_initialized;
     volatile bool psm_interval_timer_initialized;
+    
 } psm_t;
 
 // Function declarations
 esp_err_t psm_init(psm_t *psm);
+esp_err_t psm_deinit(psm_t *psm);
 void psm_set(psm_t *psm, unsigned int value);
 long psm_get_counter(psm_t *psm);
 void psm_reset_counter(psm_t *psm);
