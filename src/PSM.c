@@ -1,10 +1,14 @@
 #include "PSM.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "esp_check.h"
+#include "esp_err.h"
 
 // Function declarations
-static void IRAM_ATTR zc_interrupt_handler(psm_t *psm);
+void zc_interrupt_handler(void* arg);
+void psm_timer_interrupt_handler(void* arg);
 static void psm_calculate_skip_from_zc(psm_t *psm);
 static void psm_update_control(psm_t* psm, bool force_disable);
-static void IRAM_ATTR psm_timer_interrupt_handler(psm_t *psm);
 static void calculate_skip(psm_t *psm);
 
 esp_err_t psm_init(psm_t *psm) {
@@ -47,7 +51,8 @@ esp_err_t psm_deinit(psm_t *psm) {
 
 void onPSMInterrupt() {}
 
-static void IRAM_ATTR zc_interrupt_handler(psm_t *psm) {
+void zc_interrupt_handler(void* arg) {
+    psm_t *psm = (psm_t*)arg;
     uint64_t current_time = esp_timer_get_time() / 1000; // Convert to milliseconds
 
     if (psm->interrupt_min_time_diff > 0) {
@@ -65,7 +70,8 @@ static void IRAM_ATTR zc_interrupt_handler(psm_t *psm) {
   }
 }
 
-static void IRAM_ATTR psm_timer_interrupt_handler(psm_t *psm) {
+void psm_timer_interrupt_handler(void* arg) {
+  psm_t *psm = (psm_t*)arg;
   esp_timer_stop(psm->psm_interval_timer);
   psm_update_control(psm, true);
 }
@@ -191,7 +197,7 @@ void psm_init_timer(psm_t *psm, uint16_t delay) {
     .name = "psm_timer"
   };
 
-  ESP_ERROR_CHECK(esp_timer_create(&timer_args, psm->psm_interval_timer));
+  ESP_ERROR_CHECK(esp_timer_create(&timer_args, &psm->psm_interval_timer));
   ESP_ERROR_CHECK(esp_timer_start_once(psm->psm_interval_timer, us));
 
   psm->psm_interval_timer_initialized = true;

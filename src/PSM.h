@@ -1,18 +1,19 @@
 #ifndef PSM_H
 #define PSM_H
 
-#include "driver/gpio.h"
-#include "esp_err.h"
-#include "esp_attr.h"
-#include "esp_timer.h"
+#include <esp_err.h>
+#include <esp_timer.h>
+#include <driver/gpio.h>
+
 
 
 typedef struct {
     gpio_num_t sense_pin;
     gpio_num_t control_pin;
+    gpio_int_type_t mode;
+    esp_timer_handle_t psm_interval_timer;
     unsigned int range;
     unsigned int value;
-    gpio_int_type_t mode;
     unsigned char divider;
     unsigned char divider_counter;
     unsigned char interrupt_min_time_diff;
@@ -22,11 +23,10 @@ typedef struct {
     volatile long counter;
     volatile long stop_after;
     volatile uint64_t last_millis;
-    volatile esp_timer_handle_t* psm_interval_timer;
     volatile bool psm_interval_timer_initialized;
-    volatile bool psm_interval_timer_initialized;
-    
 } psm_t;
+
+psm_t *psmRef;
 
 // Function declarations
 esp_err_t psm_init(psm_t *psm);
