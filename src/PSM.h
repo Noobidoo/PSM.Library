@@ -26,8 +26,6 @@ typedef struct {
     volatile bool psm_interval_timer_initialized;
 } psm_t;
 
-psm_t *psmRef;
-
 // Function declarations
 esp_err_t psm_init(psm_t *psm);
 esp_err_t psm_deinit(psm_t *psm);
