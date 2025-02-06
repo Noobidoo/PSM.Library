@@ -4,8 +4,7 @@
 #include <esp_err.h>
 #include <esp_timer.h>
 #include <driver/gpio.h>
-
-
+#include "external.h"
 
 typedef struct {
     gpio_num_t sense_pin;
@@ -14,9 +13,9 @@ typedef struct {
     esp_timer_handle_t psm_interval_timer;
     unsigned int range;
     unsigned int value;
-    unsigned char divider;
-    unsigned char divider_counter;
-    unsigned char interrupt_min_time_diff;
+    unsigned int divider;
+    unsigned int divider_counter;
+    unsigned int interrupt_min_time_diff;
     volatile int timer_interval_us;
     volatile unsigned int a;
     volatile bool skip;
@@ -26,16 +25,18 @@ typedef struct {
     volatile bool psm_interval_timer_initialized;
 } psm_t;
 
+EXTERN psm_t* psmRef;
+
 // Function declarations
-esp_err_t psm_init(psm_t *psm);
-esp_err_t psm_deinit(psm_t *psm);
-void psm_set(psm_t *psm, unsigned int value);
-long psm_get_counter(psm_t *psm);
-void psm_reset_counter(psm_t *psm);
-void psm_stop_after(psm_t *psm, long counter);
-unsigned int psm_get_cps(psm_t *psm);
-void psm_set_divider(psm_t *psm, unsigned char divider);
-void psm_init_timer(psm_t *psm, uint16_t delay);
-void psm_set_shift_divider_counter(psm_t *psm,char value);
+esp_err_t psm_init(const gpio_num_t zc_pin, const gpio_num_t dimmer_pin, int range, int mode, int divider, int interrupt_min_time_diff);
+esp_err_t psm_deinit();
+void psm_set(unsigned int value);
+long psm_get_counter();
+void psm_reset_counter();
+void psm_stop_after(long counter);
+unsigned int psm_get_cps();
+void psm_set_divider(unsigned char divider);
+void psm_init_timer(uint16_t delay);
+void psm_set_shift_divider_counter(char value);
 
 #endif
