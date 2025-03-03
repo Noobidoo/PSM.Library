@@ -100,6 +100,10 @@ void psm_set( unsigned int value) {
   }
 }
 
+int psm_get_value(void) {
+  return psmRef->value;
+}
+
 long psm_get_counter(void) {
   return psmRef->counter;
 }
