@@ -35,7 +35,7 @@ long psm_get_counter();
 void psm_reset_counter();
 void psm_stop_after(long counter);
 unsigned int psm_get_cps();
-int psm_get_value(void)
+int psm_get_value(void);
 void psm_set_divider(unsigned char divider);
 void psm_init_timer(uint16_t delay);
 void psm_set_shift_divider_counter(char value);
