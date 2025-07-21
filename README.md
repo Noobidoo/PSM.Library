@@ -1,4 +1,4 @@
-# PSM.Library - Arduino library for PSM vibe pump control. 
+# PSM.Library - ESP_IDF library for PSM vibe pump control. 
 _based on https://github.com/banoz/PSM_
 
 __feature/timer__ branch addresses the TRIAC failure to close by sending two control impulses instead of one.
